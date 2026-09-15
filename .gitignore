@@ -3,5 +3,4 @@ __pycache__/
 .venv/
 venv/
 *.log
-reports/*.md
-!reports/.gitkeep
+# 报告是产出：保留一份样例报告作为证据
