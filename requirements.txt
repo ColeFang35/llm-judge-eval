@@ -1,0 +1,2 @@
+# 仅使用 Python 标准库；LLM-as-a-Judge 走 OpenAI 兼容 HTTP 接口，无需额外 SDK
+# 可选：导出其他格式报告时按需安装
