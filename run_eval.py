@@ -12,12 +12,16 @@ from __future__ import annotations
 import argparse
 import os
 
-from eval_framework import dataset
-from eval_framework.bias import position_bias
-from eval_framework.judges import LLMJudge, MockJudge
-from eval_framework.metrics import self_consistency
-from eval_framework.report import render_markdown
-from eval_framework.runner import evaluate_all, evaluate_repeats
+from eval_framework.env import load_env
+
+load_env()          # 必须在构造 LLMJudge 之前：它是在 __init__ 里读环境变量的
+
+from eval_framework import dataset  # noqa: E402
+from eval_framework.bias import position_bias  # noqa: E402
+from eval_framework.judges import LLMJudge, MockJudge  # noqa: E402
+from eval_framework.metrics import self_consistency  # noqa: E402
+from eval_framework.report import render_markdown  # noqa: E402
+from eval_framework.runner import evaluate_all, evaluate_repeats  # noqa: E402
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports")
 
@@ -31,13 +35,14 @@ def main() -> None:
     args = ap.parse_args()
 
     judge = MockJudge() if args.judge == "mock" else LLMJudge()
-    print(f"评分器：{judge.name}"
-          + ("（无 Key 时自动回退离线 Judge）" if args.judge == "llm" else ""))
+    extra: dict = {}
+    if isinstance(judge, LLMJudge):
+        print(f"评分器：llm:{judge.model}（thinking={judge.thinking}）  {judge.base_url or '⚠️ 未配置 base_url'}")
+    else:
+        print(f"评分器：{judge.name}（离线规则，不调任何模型）")
 
     report = evaluate_all(dataset.CASES, dataset.TRACES, judge)
     print(f"用例 {report.total} 个，通过 {report.passed} 个，通过率 {report.pass_rate:.0%}")
-
-    extra: dict = {}
 
     if args.repeats > 1:
         scores = {c.case_id: evaluate_repeats(c, dataset.TRACES[c.case_id], judge, args.repeats)
@@ -47,9 +52,22 @@ def main() -> None:
               f"翻转率={extra['self_consistency']['flip_rate']:.0%}")
 
     if args.bias:
-        a, b = dataset.TRACES["cs-001"], dataset.TRACES["cs-002"]
-        extra["position_bias"] = position_bias(judge, dataset.CASES[0], a, b)
-        print(f"位置偏见：{extra['position_bias']['verdict']}")
+        pb = position_bias(judge, dataset.CASES, dataset.TRACES)
+        extra["position_bias"] = pb
+        if pb:
+            print(f"位置偏见：{pb['verdict']}")
+
+    # 回显真实用量（放在最后，把偏见检测的调用也算进去）：
+    # 没有这一步，"配了 key 却回退成离线 Judge"的报告会看着像真结果
+    if isinstance(judge, LLMJudge):
+        st = judge.stats()
+        cost = "未配置单价" if st["cost_usd"] is None else f"${st['cost_usd']:.4f}"
+        print(f"实际调用 {st['calls']} 次，回退 {st['fallbacks']} 次，"
+              f"token {st['in_tokens']}+{st['out_tokens']}，花费 {cost}")
+        if st["fallbacks"]:
+            print(f"  ⚠️ 有 {st['fallbacks']} 次回退到离线 Judge —— 报告里的分数**部分是规则算的**。"
+                  f"最近一次错误：{st['last_error']}")
+        extra["judge_stats"] = st
 
     md = render_markdown(report, extra)
     os.makedirs(OUT_DIR, exist_ok=True)

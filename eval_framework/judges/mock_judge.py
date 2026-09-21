@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import re
+from statistics import mean
 
 from ..schema import AgentTrace, EvalCase, Judgment
 from .base import BaseJudge
@@ -19,6 +20,15 @@ _NUM = re.compile(r"\d+(?:\.\d+)?")
 
 class MockJudge(BaseJudge):
     name = "mock"
+
+    def compare(self, case: EvalCase, first: AgentTrace, second: AgentTrace) -> dict:
+        """离线基线：按自己的评分比大小。确定性、无位置效应，用作对照。"""
+        s1 = mean(j.score for j in self.judge(case, first))
+        s2 = mean(j.score for j in self.judge(case, second))
+        if abs(s1 - s2) < 1e-9:
+            return {"winner": "平", "rationale": f"规则分相同（{s1:.2f}）"}
+        return {"winner": "甲" if s1 > s2 else "乙",
+                "rationale": f"规则分 甲={s1:.2f} 乙={s2:.2f}"}
 
     def judge(self, case: EvalCase, trace: AgentTrace) -> list[Judgment]:
         return [
